@@ -55,7 +55,7 @@ class MainCarScreen(carContext: CarContext) : Screen(carContext), DefaultLifecyc
                 listBuilder.addItem(
                     Row.Builder()
                         .setTitle(vehicle.name)
-                        .addText("${vehicle.year} ${vehicle.make} ${vehicle.model} • ${vehicle.currentKm} km")
+                        .addText("${vehicle.year} ${vehicle.make} ${vehicle.model} • %,.1f km".format(vehicle.currentKm))
                         .setOnClickListener {
                             // Navigate to the Vehicle Menu to choose Driving or Logging
                             screenManager.push(VehicleMenuCarScreen(carContext, vehicle))

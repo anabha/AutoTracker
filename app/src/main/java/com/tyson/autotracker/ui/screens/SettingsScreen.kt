@@ -31,6 +31,8 @@ import com.tyson.autotracker.auth.GoogleAuthManager
 import com.tyson.autotracker.ui.theme.GlassBackground
 import com.tyson.autotracker.ui.theme.glassCard
 import com.tyson.autotracker.ui.viewmodels.VehicleViewModel
+import com.tyson.autotracker.utils.ParkingLocationUtils
+import com.tyson.autotracker.utils.StoredLocation
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +47,7 @@ fun SettingsScreen(
 
     val themeMode by viewModel.themeMode.collectAsState()
     val useDynamicColor by viewModel.useDynamicColor.collectAsState()
+    val parkingPlaces by viewModel.parkingPlaces.collectAsState()
 
     var isSyncEnabled by remember { mutableStateOf(true) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -209,6 +212,57 @@ fun SettingsScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // --- PARKING PLACES SECTION ---
+                item {
+                    Text("Parking Places", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = 8.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Box(modifier = Modifier.fillMaxWidth().glassCard(RoundedCornerShape(16.dp))) {
+                        Column {
+                            ParkingPlaceSettingsRow(
+                                icon = Icons.Default.Home,
+                                iconColor = MaterialTheme.colorScheme.primary,
+                                title = "Home Location",
+                                location = parkingPlaces.home,
+                                onSetCurrentLocation = {
+                                    viewModel.setHomeLocationFromCurrent(context) { success ->
+                                        Toast.makeText(
+                                            context,
+                                            if (success) "Home location saved" else "Couldn't read current location",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                                onClear = {
+                                    viewModel.clearHomeLocation()
+                                    Toast.makeText(context, "Home location cleared", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                            ParkingPlaceSettingsRow(
+                                icon = Icons.Default.Work,
+                                iconColor = MaterialTheme.colorScheme.tertiary,
+                                title = "Work Location",
+                                location = parkingPlaces.work,
+                                onSetCurrentLocation = {
+                                    viewModel.setWorkLocationFromCurrent(context) { success ->
+                                        Toast.makeText(
+                                            context,
+                                            if (success) "Work location saved" else "Couldn't read current location",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                                onClear = {
+                                    viewModel.clearWorkLocation()
+                                    Toast.makeText(context, "Work location cleared", Toast.LENGTH_SHORT).show()
+                                }
+                            )
                         }
                     }
                 }
@@ -401,6 +455,54 @@ fun SettingsScreen(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+fun ParkingPlaceSettingsRow(
+    icon: ImageVector,
+    iconColor: Color,
+    title: String,
+    location: StoredLocation?,
+    onSetCurrentLocation: () -> Unit,
+    onClear: () -> Unit
+) {
+    val context = LocalContext.current
+    var displayAddress by remember(location) {
+        mutableStateOf(location?.let { ParkingLocationUtils.formatLatLng(it) } ?: "Not set")
+    }
+
+    LaunchedEffect(location) {
+        displayAddress = if (location != null) {
+            ParkingLocationUtils.reverseGeocode(context, location)
+        } else {
+            "Not set"
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.background(iconColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp)).padding(8.dp)) {
+            Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            Text(displayAddress, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f), maxLines = 2)
+        }
+        Spacer(Modifier.width(12.dp))
+        IconButton(onClick = onSetCurrentLocation) {
+            Icon(Icons.Default.MyLocation, contentDescription = "Use current location", tint = iconColor)
+        }
+        if (location != null) {
+            IconButton(onClick = onClear) {
+                Icon(Icons.Default.Close, contentDescription = "Clear location", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+            }
         }
     }
 }

@@ -15,7 +15,7 @@ data class Vehicle(
     val make: String = "",
     val model: String = "",
     val year: Int = 0,
-    val currentKm: Int = 0,
+    val currentKm: Double = 0.0,
     val createdAt: String = System.currentTimeMillis().toString(),
     val registrationNo: String? = null,
     val engineNo: String? = null,
@@ -24,7 +24,10 @@ data class Vehicle(
     val bluetoothMacAddress: String? = null,
     val wifiSsid: String? = null,
     val imageUri: String? = null,
-    val useAndroidAutoHandover: Boolean = false
+    val useAndroidAutoHandover: Boolean = false,
+    val lastParkedLatitude: Double? = null,
+    val lastParkedLongitude: Double? = null,
+    val lastParkedAt: Long? = null
 )
 
 @Entity(tableName = "logs")

@@ -14,8 +14,8 @@ android {
         applicationId = "com.tyson.autotracker"
         minSdk = 33
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.2"
+        versionCode = 5
+        versionName = "1.0.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

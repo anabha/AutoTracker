@@ -22,6 +22,10 @@ import com.tyson.autotracker.models.TripLog
 import com.tyson.autotracker.models.Vehicle
 import com.tyson.autotracker.models.VehicleLog
 import com.tyson.autotracker.services.LocationService
+import com.tyson.autotracker.utils.ParkingLocationStore
+import com.tyson.autotracker.utils.ParkingLocationUtils
+import com.tyson.autotracker.utils.ParkingPlaces
+import com.tyson.autotracker.utils.StoredLocation
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +49,8 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
     private val repository = VehicleRepository(dao)
     private val themePrefs = application.getSharedPreferences("theme_prefs", Context.MODE_PRIVATE)
     private val disclosurePrefs = application.getSharedPreferences("location_prefs", Context.MODE_PRIVATE)
+    private val authPrefs = application.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
+    private val parkingLocationStore = ParkingLocationStore(application)
 
     private val _themeMode = MutableStateFlow(ThemeMode.valueOf(themePrefs.getString("mode", "SYSTEM") ?: "SYSTEM"))
     val themeMode = _themeMode.asStateFlow()
@@ -54,6 +60,12 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
 
     private val _hasAcceptedLocationDisclosure = MutableStateFlow(disclosurePrefs.getBoolean("has_accepted_location_disclosure", false))
     val hasAcceptedLocationDisclosure = _hasAcceptedLocationDisclosure.asStateFlow()
+
+    private val _continueWithoutLogin = MutableStateFlow(authPrefs.getBoolean("continue_without_login", false))
+    val continueWithoutLogin = _continueWithoutLogin.asStateFlow()
+
+    private val _parkingPlaces = MutableStateFlow(parkingLocationStore.getPlaces())
+    val parkingPlaces = _parkingPlaces.asStateFlow()
 
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
     val navigationEvent = _navigationEvent.asSharedFlow()
@@ -73,6 +85,57 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
     fun acceptLocationDisclosure() {
         disclosurePrefs.edit().putBoolean("has_accepted_location_disclosure", true).apply()
         _hasAcceptedLocationDisclosure.value = true
+    }
+
+    fun continueWithoutLogin() {
+        authPrefs.edit().putBoolean("continue_without_login", true).apply()
+        _continueWithoutLogin.value = true
+    }
+
+    fun clearContinueWithoutLogin() {
+        authPrefs.edit().putBoolean("continue_without_login", false).apply()
+        _continueWithoutLogin.value = false
+    }
+
+    fun setHomeLocationFromCurrent(context: Context, onComplete: (Boolean) -> Unit) {
+        saveParkingPlaceFromCurrent(context, isHome = true, onComplete = onComplete)
+    }
+
+    fun setWorkLocationFromCurrent(context: Context, onComplete: (Boolean) -> Unit) {
+        saveParkingPlaceFromCurrent(context, isHome = false, onComplete = onComplete)
+    }
+
+    fun clearHomeLocation() {
+        parkingLocationStore.clearHomeLocation()
+        _parkingPlaces.value = parkingLocationStore.getPlaces()
+    }
+
+    fun clearWorkLocation() {
+        parkingLocationStore.clearWorkLocation()
+        _parkingPlaces.value = parkingLocationStore.getPlaces()
+    }
+
+    private fun saveParkingPlaceFromCurrent(
+        context: Context,
+        isHome: Boolean,
+        onComplete: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            val location = ParkingLocationUtils.getCurrentExactLocation(context)
+            if (location == null) {
+                onComplete(false)
+                return@launch
+            }
+
+            val storedLocation = StoredLocation(location.latitude, location.longitude)
+            if (isHome) {
+                parkingLocationStore.saveHomeLocation(storedLocation)
+            } else {
+                parkingLocationStore.saveWorkLocation(storedLocation)
+            }
+            _parkingPlaces.value = parkingLocationStore.getPlaces()
+            onComplete(true)
+        }
     }
 
     fun deleteAccountAndData(onComplete: (Boolean) -> Unit) {
@@ -515,36 +578,58 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
 
-    private fun syncToFirebase(action: (com.google.firebase.firestore.DocumentReference) -> Unit) {
-        val uid = auth.currentUser?.uid ?: return
+    /**
+     * Runs [action] against the user's Firestore document. Any returned [com.google.android.gms.tasks.Task]
+     * gets success/failure listeners attached so silent failures are visible in Logcat.
+     * If the user is not signed in (or chose "continue without login"), the call is a logged no-op.
+     */
+    private fun syncToFirebase(
+        label: String = "sync",
+        action: (com.google.firebase.firestore.DocumentReference) -> com.google.android.gms.tasks.Task<*>?
+    ) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            Log.w("VehicleViewModel", "Skipping Firestore $label: user not signed in")
+            return
+        }
         val userDoc = firestore.collection("users").document(uid)
-        action(userDoc)
+        try {
+            val task = action(userDoc)
+            task?.addOnSuccessListener {
+                    Log.d("VehicleViewModel", "Firestore $label succeeded")
+                }
+                ?.addOnFailureListener { e ->
+                    Log.e("VehicleViewModel", "Firestore $label failed", e)
+                }
+        } catch (e: Exception) {
+            Log.e("VehicleViewModel", "Firestore $label threw", e)
+        }
     }
 
     fun addVehicle(vehicle: Vehicle) = viewModelScope.launch {
         dao.insertVehicle(vehicle)
-        syncToFirebase { userDoc ->
+        syncToFirebase("addVehicle ${vehicle.id}") { userDoc ->
             userDoc.collection("vehicles").document(vehicle.id).set(vehicle)
         }
     }
 
     fun updateVehicle(vehicle: Vehicle) = viewModelScope.launch {
         dao.updateVehicle(vehicle)
-        syncToFirebase { userDoc ->
+        syncToFirebase("updateVehicle ${vehicle.id}") { userDoc ->
             userDoc.collection("vehicles").document(vehicle.id).set(vehicle)
         }
     }
 
     fun deleteVehicle(vehicleId: String) = viewModelScope.launch {
         dao.deleteVehicle(vehicleId)
-        syncToFirebase { userDoc ->
+        syncToFirebase("deleteVehicle $vehicleId") { userDoc ->
             userDoc.collection("vehicles").document(vehicleId).delete()
         }
     }
 
     fun addLog(log: VehicleLog) = viewModelScope.launch {
         dao.insertLog(log)
-        syncToFirebase { userDoc ->
+        syncToFirebase("addLog ${log.id}") { userDoc ->
             userDoc.collection("logs").document(log.id).set(log)
         }
 
@@ -560,17 +645,17 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
 
     fun addTrip(trip: TripLog) = viewModelScope.launch {
         dao.insertTrip(trip)
-        syncToFirebase { userDoc ->
+        syncToFirebase("addTrip ${trip.id}") { userDoc ->
             userDoc.collection("trips").document(trip.id).set(trip)
         }
 
         val vehicle = dao.getVehicleByIdSync(trip.vehicleId)
         if (vehicle != null) {
-            val kmAdded = (trip.distanceMeters / 1000f).toInt()
+            val kmAdded = trip.distanceMeters / 1000.0
             if (kmAdded > 0) {
                 val updatedVehicle = vehicle.copy(currentKm = vehicle.currentKm + kmAdded)
                 dao.updateVehicle(updatedVehicle)
-                syncToFirebase { userDoc ->
+                syncToFirebase("addTrip:updateVehicle ${updatedVehicle.id}") { userDoc ->
                     userDoc.collection("vehicles").document(updatedVehicle.id).set(updatedVehicle)
                 }
             }
@@ -627,7 +712,7 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
 
     fun deleteLog(log: VehicleLog) = viewModelScope.launch {
         dao.deleteLog(log)
-        syncToFirebase { userDoc ->
+        syncToFirebase("deleteLog ${log.id}") { userDoc ->
             userDoc.collection("logs").document(log.id).delete()
         }
         cancelReminders(log)
@@ -649,7 +734,7 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
 
     fun updateLog(log: VehicleLog) = viewModelScope.launch {
         dao.updateLog(log)
-        syncToFirebase { userDoc ->
+        syncToFirebase("updateLog ${log.id}") { userDoc ->
             userDoc.collection("logs").document(log.id).set(log)
         }
         cancelReminders(log)
@@ -662,18 +747,18 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
     fun deleteTrip(trip: TripLog) = viewModelScope.launch {
         val vehicle = dao.getVehicleByIdSync(trip.vehicleId)
         if (vehicle != null) {
-            val kmRemoved = (trip.distanceMeters / 1000f).toInt()
+            val kmRemoved = trip.distanceMeters / 1000.0
             if (kmRemoved > 0) {
-                val newKm = max(0, vehicle.currentKm - kmRemoved)
+                val newKm = max(0.0, vehicle.currentKm - kmRemoved)
                 val updatedVehicle = vehicle.copy(currentKm = newKm)
                 dao.updateVehicle(updatedVehicle)
-                syncToFirebase { userDoc ->
+                syncToFirebase("deleteTrip:updateVehicle ${updatedVehicle.id}") { userDoc ->
                     userDoc.collection("vehicles").document(updatedVehicle.id).set(updatedVehicle)
                 }
             }
         }
         dao.deleteTrip(trip.id)
-        syncToFirebase { userDoc ->
+        syncToFirebase("deleteTrip ${trip.id}") { userDoc ->
             userDoc.collection("trips").document(trip.id).delete()
         }
     }
@@ -688,7 +773,7 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
             checkDateReminder(vehicle.name, "Insurance", vehicle.insuranceDate, sdf, today)?.let { alerts.add(it) }
             val lastLog = logs.filter { it.vehicleId == vehicle.id }.maxByOrNull { it.date }
             lastLog?.nextServiceKm?.let { nextKm ->
-                val diff = nextKm - vehicle.currentKm
+                val diff = nextKm - vehicle.currentKm.toInt()
                 if (diff <= 500) alerts.add(ReminderAlert(vehicle.name, "Service", "Service due in $diff km", diff <= 100))
             }
         }

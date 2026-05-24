@@ -15,9 +15,14 @@ import com.google.android.gms.location.*
 import com.tyson.autotracker.MainActivity
 import com.tyson.autotracker.data.AutotrackerDatabase
 import com.tyson.autotracker.models.TripLog
+import com.tyson.autotracker.utils.ParkingLocationStore
+import com.tyson.autotracker.utils.ParkingLocationUtils
+import com.tyson.autotracker.utils.StoredLocation
 import androidx.car.app.connection.CarConnection
 import androidx.lifecycle.Observer
 import androidx.lifecycle.LiveData
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.*
@@ -28,6 +33,12 @@ class LocationService : Service() {
 
     private var lastLocation: Location? = null
     private var lastSavedRouteLocation: Location? = null
+
+    // Wall-clock timestamps of the first and last GPS fix received during this trip.
+    // Used to compute avgSpeed reliably even if `tripStartTime` is stale (e.g. after
+    // the service was killed and restarted by the OS via START_STICKY).
+    private var firstFixWallTime: Long = 0L
+    private var lastFixWallTime: Long = 0L
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -105,6 +116,8 @@ class LocationService : Service() {
         maxSpeed.value = 0f
         lastLocation = null
         lastSavedRouteLocation = null
+        firstFixWallTime = 0L
+        lastFixWallTime = 0L
         isManualTrip.value = isManual
 
         isTracking.value = true
@@ -129,6 +142,10 @@ class LocationService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 for (location in locationResult.locations) {
+                    val now = System.currentTimeMillis()
+                    if (firstFixWallTime == 0L) firstFixWallTime = now
+                    lastFixWallTime = now
+
                     if (lastLocation != null) {
                         val distance = lastLocation!!.distanceTo(location)
                         tripDistance.value += distance
@@ -176,17 +193,34 @@ class LocationService : Service() {
     }
 
     private fun saveTripToDatabase(onComplete: (() -> Unit)? = null) {
-        val distance = tripDistance.value
-        val startTime = tripStartTime.value
+        // Apply GPS calibration multiplier to compensate for the "corner-cutting" effect
+        // of point-to-point distance calculation between sparse GPS samples.
+        val gpsCalibrationFactor = 1.015f
+        val distance = tripDistance.value * gpsCalibrationFactor
         val endTime = System.currentTimeMillis()
+
+        // Prefer GPS-fix wall-clock times for duration. They survive even if the static
+        // tripStartTime has been clobbered (e.g. service restart). Fall back to the
+        // companion-object start time, then finally to "now" if neither is usable.
+        val effectiveStart = when {
+            firstFixWallTime > 0L -> firstFixWallTime
+            tripStartTime.value > 0L -> tripStartTime.value
+            else -> endTime
+        }
+        val effectiveEnd = if (lastFixWallTime > effectiveStart) lastFixWallTime else endTime
+        val startTime = if (tripStartTime.value > 0L) tripStartTime.value else effectiveStart
         val vehicleId = activeVehicleId.value
         val points = routePoints.value
         val topSpeed = maxSpeed.value
 
-        val durationHours = (endTime - startTime) / (1000f * 60f * 60f)
-        val avgSpeed = if (durationHours > 0) (distance / 1000f) / durationHours else 0f
+        val durationHours = (effectiveEnd - effectiveStart) / (1000f * 60f * 60f)
+        val avgSpeed = if (durationHours > 0f) (distance / 1000f) / durationHours else 0f
 
-        Log.d("LocationService", "saveTripToDatabase: distance=$distance, vehicleId=$vehicleId, avgSpeed=$avgSpeed")
+        Log.d(
+            "LocationService",
+            "saveTripToDatabase: distance=$distance, vehicleId=$vehicleId, " +
+                "durationHours=$durationHours, avgSpeed=$avgSpeed"
+        )
 
         if (vehicleId == null || distance < 10) {
             Log.d("LocationService", "Trip too short or no vehicle ID, skipping save")
@@ -211,13 +245,42 @@ class LocationService : Service() {
                 db.vehicleDao().insertTrip(trip)
                 Log.d("LocationService", "Trip saved to database")
 
+                // Mirror trip to Firestore (best-effort, errors are logged but not fatal).
+                syncTripToFirestore(trip)
+
                 val vehicle = db.vehicleDao().getVehicleByIdSync(vehicleId)
                 val vehicleName = vehicle?.name ?: "Unknown Vehicle"
 
                 if (vehicle != null) {
-                    val kmAdded = (distance / 1000f).toInt()
+                    var updatedVehicle = vehicle
+
+                    val kmAdded = distance / 1000.0
                     if (kmAdded > 0) {
-                        db.vehicleDao().updateVehicle(vehicle.copy(currentKm = vehicle.currentKm + kmAdded))
+                        updatedVehicle = updatedVehicle.copy(currentKm = updatedVehicle.currentKm + kmAdded)
+                    }
+
+                    val currentParkingLocation = getTripEndLocation()
+                    if (currentParkingLocation != null) {
+                        val parkingStore = ParkingLocationStore(this@LocationService)
+                        val shouldSaveParkingLocation = ParkingLocationUtils.shouldSaveParkedLocation(
+                            currentLocation = currentParkingLocation,
+                            homeLocation = parkingStore.getHomeLocation(),
+                            workLocation = parkingStore.getWorkLocation()
+                        )
+
+                        if (shouldSaveParkingLocation) {
+                            updatedVehicle = updatedVehicle.copy(
+                                lastParkedLatitude = currentParkingLocation.latitude,
+                                lastParkedLongitude = currentParkingLocation.longitude,
+                                lastParkedAt = endTime
+                            )
+                        }
+                    }
+
+                    if (updatedVehicle != vehicle) {
+                        db.vehicleDao().updateVehicle(updatedVehicle)
+                        // Mirror odometer/parking update to Firestore.
+                        syncVehicleToFirestore(updatedVehicle)
                     }
                 }
 
@@ -233,6 +296,40 @@ class LocationService : Service() {
                 }
             }
         }
+    }
+
+    private suspend fun getTripEndLocation(): StoredLocation? {
+        val exactLocation = ParkingLocationUtils.getCurrentExactLocation(this)
+        val location = exactLocation ?: currentLocation.value ?: lastLocation
+        return location?.let { StoredLocation(it.latitude, it.longitude) }
+    }
+
+    private fun syncTripToFirestore(trip: TripLog) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            Log.w("LocationService", "Skipping trip Firestore sync: user not signed in")
+            return
+        }
+        FirebaseFirestore.getInstance()
+            .collection("users").document(uid)
+            .collection("trips").document(trip.id)
+            .set(trip)
+            .addOnSuccessListener { Log.d("LocationService", "Trip ${trip.id} synced to Firestore") }
+            .addOnFailureListener { e -> Log.e("LocationService", "Trip Firestore sync failed", e) }
+    }
+
+    private fun syncVehicleToFirestore(vehicle: com.tyson.autotracker.models.Vehicle) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            Log.w("LocationService", "Skipping vehicle Firestore sync: user not signed in")
+            return
+        }
+        FirebaseFirestore.getInstance()
+            .collection("users").document(uid)
+            .collection("vehicles").document(vehicle.id)
+            .set(vehicle)
+            .addOnSuccessListener { Log.d("LocationService", "Vehicle ${vehicle.id} synced to Firestore") }
+            .addOnFailureListener { e -> Log.e("LocationService", "Vehicle Firestore sync failed", e) }
     }
 
     private fun createNotification(): Notification {

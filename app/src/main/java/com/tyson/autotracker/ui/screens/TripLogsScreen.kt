@@ -66,7 +66,7 @@ fun TripLogsScreen(
     val trips by viewModel.getTripsForVehicle(vehicleId).collectAsState(emptyList())
     val vehicles by viewModel.allVehicles.collectAsState()
     val vehicle = vehicles.find { it.id == vehicleId }
-    val previousOdo = vehicle?.currentKm ?: 0
+    val previousOdo = vehicle?.currentKm ?: 0.0
     
     val formatTime = SimpleDateFormat("MMM d, yyyy • h:mm a", Locale.getDefault())
 
@@ -283,7 +283,7 @@ fun TripStatBlock(label: String, value: String, modifier: Modifier = Modifier) {
 @Composable
 fun ManualTripAddModal(
     vehicleId: String,
-    previousOdo: Int,
+    previousOdo: Double,
     onDismiss: () -> Unit,
     onSave: (TripLog) -> Unit
 ) {
@@ -325,8 +325,8 @@ fun ManualTripAddModal(
     }
 
     val odoDistanceMeters = remember(currentOdoStr, previousOdo) {
-        val currentOdo = currentOdoStr.toIntOrNull() ?: previousOdo
-        (currentOdo - previousOdo).coerceAtLeast(0) * 1000f
+        val currentOdo = currentOdoStr.toDoubleOrNull() ?: previousOdo
+        ((currentOdo - previousOdo).coerceAtLeast(0.0) * 1000.0).toFloat()
     }
 
     val distanceMeters = if (distanceCalcMode == "ODO") odoDistanceMeters else mapDistanceMeters
@@ -421,10 +421,10 @@ fun ManualTripAddModal(
                 if (distanceCalcMode == "ODO") {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Box(Modifier.weight(1f)) {
-                            OdoInputField("Previous Odo", previousOdo.toString(), {}, readOnly = true)
+                            OdoInputField("Previous Odo", "%.1f".format(previousOdo), {}, readOnly = true)
                         }
                         Box(Modifier.weight(1f)) {
-                            val isError = currentOdoStr.isNotEmpty() && (currentOdoStr.toIntOrNull() ?: 0) < previousOdo
+                            val isError = currentOdoStr.isNotEmpty() && (currentOdoStr.toDoubleOrNull() ?: 0.0) < previousOdo
                             OdoInputField(
                                 label = "Current Odo",
                                 value = currentOdoStr,
@@ -555,7 +555,7 @@ fun ManualTripAddModal(
                     Icon(Icons.Default.DirectionsCar, null, tint = if (distanceCalcMode == "ODO") MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), modifier = Modifier.size(32.dp))
                 }
 
-                    val isValidOdo = distanceCalcMode != "ODO" || (currentOdoStr.toIntOrNull() ?: 0) >= previousOdo
+                    val isValidOdo = distanceCalcMode != "ODO" || (currentOdoStr.toDoubleOrNull() ?: 0.0) >= previousOdo
 
                     Button(
                         onClick = {

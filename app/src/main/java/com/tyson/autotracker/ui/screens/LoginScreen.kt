@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,7 +25,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(
-    onLoginSuccess: () -> Unit
+    onLoginSuccess: () -> Unit,
+    onContinueWithoutLogin: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -34,10 +36,35 @@ fun LoginScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     GlassBackground {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            IconButton(
+                onClick = onContinueWithoutLogin,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 8.dp, end = 12.dp)
+                    .background(
+                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f),
+                        RoundedCornerShape(12.dp)
+                    )
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Continue without login",
+                    tint = MaterialTheme.colorScheme.onBackground
+                )
+            }
+
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(32.dp)
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(32.dp)
             ) {
                 // Logo/Icon
                 Box(

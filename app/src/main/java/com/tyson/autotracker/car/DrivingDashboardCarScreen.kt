@@ -76,7 +76,7 @@ class DrivingDashboardCarScreen(carContext: CarContext, val vehicleId: String) :
         paneBuilder.addRow(
             Row.Builder()
                 .setTitle("ODOMETER")
-                .addText("${vehicle?.currentKm ?: 0} km")
+                .addText("%,.1f km".format(vehicle?.currentKm ?: 0.0))
                 .build()
         )
 

@@ -31,7 +31,7 @@ class AddLogCarScreen(carContext: CarContext, val vehicle: Vehicle) : Screen(car
             listBuilder.addItem(
                 Row.Builder()
                     .setTitle("Log $title")
-                    .addText("Current KM: ${vehicle.currentKm}")
+                    .addText("Current KM: %.1f".format(vehicle.currentKm))
                     .setOnClickListener {
                         CoroutineScope(Dispatchers.IO).launch {
                             val dao = AutotrackerDatabase.getDatabase(carContext).vehicleDao()
@@ -46,7 +46,7 @@ class AddLogCarScreen(carContext: CarContext, val vehicle: Vehicle) : Screen(car
                                 type = type,
                                 date = currentDateStr, // FIXED: Now passes a String instead of a Long
                                 cost = 0.0, // Edit later on phone
-                                kmReading = vehicle.currentKm,
+                                kmReading = vehicle.currentKm.toInt(),
                                 description = "Quick Logged via Android Auto"
                             )
 

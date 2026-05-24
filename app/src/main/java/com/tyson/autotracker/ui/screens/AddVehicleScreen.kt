@@ -60,7 +60,7 @@ fun AddVehicleScreen(
     var make by remember { mutableStateOf(existingVehicle?.make ?: "") }
     var model by remember { mutableStateOf(existingVehicle?.model ?: "") }
     var year by remember { mutableStateOf(existingVehicle?.year?.toString() ?: Calendar.getInstance().get(Calendar.YEAR).toString()) }
-    var currentKm by remember { mutableStateOf(existingVehicle?.currentKm?.toString() ?: "0") }
+    var currentKm by remember { mutableStateOf(existingVehicle?.currentKm?.let { "%.1f".format(it) } ?: "0") }
     var registrationNo by remember { mutableStateOf(existingVehicle?.registrationNo ?: "") }
     var engineNo by remember { mutableStateOf(existingVehicle?.engineNo ?: "") }
     var puccDate by remember { mutableStateOf(existingVehicle?.puccDate ?: "") }
@@ -220,7 +220,7 @@ fun AddVehicleScreen(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Box(Modifier.weight(1f)) { GlassInputField("Year", year, { year = it }, "2024", KeyboardOptions(keyboardType = KeyboardType.Number)) }
-                        Box(Modifier.weight(1f)) { GlassInputField("Current KM", currentKm, { currentKm = it }, "0", KeyboardOptions(keyboardType = KeyboardType.Number)) }
+                        Box(Modifier.weight(1f)) { GlassInputField("Current KM", currentKm, { currentKm = it }, "0", KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
                     }
 
                     GlassInputField("Engine No.", engineNo, { engineNo = it }, "ENG123456789")
@@ -316,7 +316,7 @@ fun AddVehicleScreen(
                                 make = make,
                                 model = model,
                                 year = year.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR),
-                                currentKm = currentKm.toIntOrNull() ?: 0,
+                                currentKm = currentKm.toDoubleOrNull() ?: 0.0,
                                 createdAt = existingVehicle?.createdAt ?: System.currentTimeMillis().toString(),
                                 registrationNo = registrationNo.ifBlank { null },
                                 engineNo = engineNo.ifBlank { null },

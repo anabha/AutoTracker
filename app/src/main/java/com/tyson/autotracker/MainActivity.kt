@@ -63,16 +63,17 @@ class MainActivity : ComponentActivity() {
             val themeMode by vehicleViewModel.themeMode.collectAsState()
             val useDynamicColor by vehicleViewModel.useDynamicColor.collectAsState()
             val hasAcceptedDisclosure by vehicleViewModel.hasAcceptedLocationDisclosure.collectAsState()
+            val continueWithoutLogin by vehicleViewModel.continueWithoutLogin.collectAsState()
 
             AutoTrackerTheme(themeMode = themeMode, dynamicColor = useDynamicColor) {
                 val navController = rememberNavController()
                 val context = LocalContext.current
 
                 val authManager = remember { GoogleAuthManager(context) }
-                val startRoute = remember(hasAcceptedDisclosure) {
+                val startRoute = remember(hasAcceptedDisclosure, continueWithoutLogin) {
                     if (!hasAcceptedDisclosure) {
                         "disclosure"
-                    } else if (authManager.getCurrentUser() != null) {
+                    } else if (authManager.getCurrentUser() != null || continueWithoutLogin) {
                         "dashboard"
                     } else {
                         "login"
@@ -238,10 +239,17 @@ class MainActivity : ComponentActivity() {
                     composable("login") {
                         LoginScreen(
                             onLoginSuccess = {
+                                vehicleViewModel.clearContinueWithoutLogin()
                                 vehicleViewModel.restoreFromFirebase { success ->
                                     navController.navigate("dashboard") {
                                         popUpTo("login") { inclusive = true }
                                     }
+                                }
+                            },
+                            onContinueWithoutLogin = {
+                                vehicleViewModel.continueWithoutLogin()
+                                navController.navigate("dashboard") {
+                                    popUpTo("login") { inclusive = true }
                                 }
                             }
                         )
@@ -274,6 +282,7 @@ class MainActivity : ComponentActivity() {
                             viewModel = vehicleViewModel,
                             onNavigateBack = { navController.popBackStack() },
                             onLogoutSuccess = {
+                                vehicleViewModel.clearContinueWithoutLogin()
                                 navController.navigate("login") {
                                     popUpTo(0) { inclusive = true }
                                 }

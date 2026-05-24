@@ -21,7 +21,7 @@ class LogFormCarScreen(
 ) : Screen(carContext) {
 
     private var cost = ""
-    private var odometer = vehicle.currentKm.toString()
+    private var odometer = "%.1f".format(vehicle.currentKm)
     private var description = "Logged via Android Auto"
     private var dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
     
@@ -187,7 +187,7 @@ class LogFormCarScreen(
                 type = logType,
                 date = dateStr,
                 cost = cost.toDoubleOrNull() ?: 0.0,
-                kmReading = odometer.toIntOrNull() ?: vehicle.currentKm,
+                kmReading = odometer.toDoubleOrNull()?.toInt() ?: vehicle.currentKm.toInt(),
                 description = description,
                 fuelLiters = if (logType == LogType.REFUELING) fuelLiters.toDoubleOrNull() else null,
                 nextServiceKm = nextServiceKm.toIntOrNull(),

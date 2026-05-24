@@ -755,7 +755,7 @@ fun ThemeOdometerGauge(vehicle: Vehicle, tripDistance: Float, modifier: Modifier
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("ODOMETER", fontSize = 10.sp, color = colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
-            Text(vehicle.currentKm.toString(), fontSize = 48.sp, fontWeight = FontWeight.Bold, color = colorScheme.onBackground, fontFamily = FontFamily.Monospace)
+            Text("%,.1f".format(vehicle.currentKm), fontSize = 48.sp, fontWeight = FontWeight.Bold, color = colorScheme.onBackground, fontFamily = FontFamily.Monospace)
             Text("km", fontSize = 16.sp, fontWeight = FontWeight.Bold, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = colorScheme.primary, letterSpacing = 2.sp)
 
             Spacer(Modifier.height(16.dp))

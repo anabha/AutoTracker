@@ -33,6 +33,8 @@ import com.tyson.autotracker.models.VehicleLog
 import com.tyson.autotracker.models.VehicleType
 import com.tyson.autotracker.ui.theme.*
 import com.tyson.autotracker.ui.viewmodels.VehicleViewModel
+import com.tyson.autotracker.utils.ParkingLocationUtils
+import com.tyson.autotracker.utils.StoredLocation
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -245,7 +247,7 @@ fun VehicleDetailsScreen(
                             ) {
                                 PillTag(
                                     Icons.Default.LocationOn,
-                                    "${"%,d".format(vehicle.currentKm)} km",
+                                    "${"%,.1f".format(vehicle.currentKm)} km",
                                     MaterialTheme.colorScheme.primary
                                 )
                                 PillTag(
@@ -288,6 +290,20 @@ fun VehicleDetailsScreen(
                             }
                         }
                     }
+                }
+
+                // --- 2. PARKING LOCATION SECTION ---
+                item {
+                    Text(
+                        "Parking Location",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+
+                item {
+                    ParkingLocationCard(vehicle = vehicle)
                 }
 
                 // --- 2. SERVICE HISTORY SECTION ---
@@ -425,7 +441,7 @@ fun VehicleDetailsScreen(
                             } else {
                                 val nextLog = upcomingLogs.first()
                                 val kmRemaining =
-                                    nextLog.nextServiceKm?.let { it - vehicle.currentKm }
+                                    nextLog.nextServiceKm?.let { it - vehicle.currentKm.toInt() }
                                 val warningColor = Amber400
 
                                 Box(
@@ -680,6 +696,87 @@ fun ComplianceWidget(title: String, dateStr: String, color: Color) {
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp
             )
+        }
+    }
+}
+
+@Composable
+fun ParkingLocationCard(vehicle: Vehicle) {
+    val context = LocalContext.current
+    val parkedLocation = remember(vehicle.lastParkedLatitude, vehicle.lastParkedLongitude) {
+        val latitude = vehicle.lastParkedLatitude
+        val longitude = vehicle.lastParkedLongitude
+        if (latitude != null && longitude != null) StoredLocation(latitude, longitude) else null
+    }
+    var displayAddress by remember(parkedLocation) {
+        mutableStateOf(parkedLocation?.let { ParkingLocationUtils.formatLatLng(it) } ?: "No parked location saved yet.")
+    }
+
+    LaunchedEffect(parkedLocation) {
+        displayAddress = if (parkedLocation != null) {
+            ParkingLocationUtils.reverseGeocode(context, parkedLocation)
+        } else {
+            "No parked location saved yet."
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassCard(RoundedCornerShape(16.dp))
+            .padding(20.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Box(
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                        .padding(10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.LocalParking,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Last Parked Location",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        displayAddress,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f)
+                    )
+                    vehicle.lastParkedAt?.let { parkedAt ->
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Saved ${SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(parkedAt))}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    parkedLocation?.let { ParkingLocationUtils.launchNavigation(context, it) }
+                },
+                enabled = parkedLocation != null,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Navigate to Vehicle", fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
