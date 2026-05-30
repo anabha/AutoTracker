@@ -121,8 +121,12 @@ fun InsightsScreen(
                                     Text(vehicle.name, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                                     Text("${vehicle.make} ${vehicle.model}", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f), fontSize = 12.sp)
                                 }
-                                // Simulated mileage display
-                                Text("18.5 km/L", fontWeight = FontWeight.Black, fontSize = 20.sp, color = Color(0xFF10b981))
+                                val averageMileage by viewModel.getAverageMileage(vehicle.id).collectAsState(initial = 0f)
+                                if (averageMileage > 0f) {
+                                    Text("${"%.1f".format(averageMileage)} km/L", fontWeight = FontWeight.Black, fontSize = 20.sp, color = Color(0xFF10b981))
+                                } else {
+                                    Text("Need more logs", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+                                }
                             }
                         }
                     }
@@ -165,5 +169,7 @@ fun getColorForType(type: LogType): Color {
         LogType.SERVICE -> Color(0xFFf59e0b)   // Amber
         LogType.MODIFICATION -> Color(0xFF8b5cf6) // Purple
         LogType.OIL_CHANGE -> Color(0xFF10b981)   // Green
+        LogType.INSURANCE -> Color(0xFF0ea5e9)    // Sky Blue
+        LogType.POLLUTION -> Color(0xFF22c55e)    // Emerald
     }
 }

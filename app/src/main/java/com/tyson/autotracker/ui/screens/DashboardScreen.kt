@@ -34,6 +34,7 @@ fun DashboardScreen(
     onNavigateToAddVehicle: () -> Unit,
     onNavigateToInsights: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToVisitedPlaces: () -> Unit,
     onStartTrip: () -> Unit
 ) {
     val vehicles by viewModel.allVehicles.collectAsState()
@@ -179,6 +180,16 @@ fun DashboardScreen(
                                     Icon(Icons.Default.Analytics, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(8.dp))
                                     Text("Insights", color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp)
+                                }
+                            }
+                            Box(
+                                modifier = Modifier.weight(1f).height(48.dp).glassCard(RoundedCornerShape(12.dp)).clickable { onNavigateToVisitedPlaces() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row {
+                                    Icon(Icons.Default.Place, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Places", color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp)
                                 }
                             }
                         }

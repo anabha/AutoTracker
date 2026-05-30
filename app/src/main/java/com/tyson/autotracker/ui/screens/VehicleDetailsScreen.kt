@@ -262,6 +262,16 @@ fun VehicleDetailsScreen(
                                         MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                                     )
                                 }
+                                if ((vehicle.fuelCapacityLiters ?: 0.0) > 0.0) {
+                                    val estRange by viewModel.getEstimatedRange(vehicle.id).collectAsState(initial = 0f)
+                                    if (estRange > 0f) {
+                                        PillTag(
+                                            Icons.Default.LocalGasStation,
+                                            "Est. Range: ~${"%.0f".format(estRange)} km",
+                                            MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                }
                             }
 
                             if (!vehicle.puccDate.isNullOrBlank() || !vehicle.insuranceDate.isNullOrBlank()) {
@@ -816,6 +826,18 @@ fun ReactStyleLogCard(
             tertiaryColor,
             tertiaryColor.copy(alpha = 0.2f),
             Icons.Default.Settings
+        )
+
+        LogType.INSURANCE -> Triple(
+            primaryColor,
+            primaryColor.copy(alpha = 0.2f),
+            Icons.Default.Security
+        )
+
+        LogType.POLLUTION -> Triple(
+            successColor,
+            successColor.copy(alpha = 0.2f),
+            Icons.Default.Eco
         )
     }
 

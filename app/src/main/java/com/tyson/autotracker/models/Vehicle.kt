@@ -5,7 +5,7 @@ import androidx.room.PrimaryKey
 import java.util.UUID
 
 enum class VehicleType { CAR, BIKE }
-enum class LogType { SERVICE, MODIFICATION, OIL_CHANGE, REFUELING }
+enum class LogType { SERVICE, MODIFICATION, OIL_CHANGE, REFUELING, INSURANCE, POLLUTION }
 
 @Entity(tableName = "vehicles")
 data class Vehicle(
@@ -27,7 +27,8 @@ data class Vehicle(
     val useAndroidAutoHandover: Boolean = false,
     val lastParkedLatitude: Double? = null,
     val lastParkedLongitude: Double? = null,
-    val lastParkedAt: Long? = null
+    val lastParkedAt: Long? = null,
+    val fuelCapacityLiters: Double? = null
 )
 
 @Entity(tableName = "logs")
@@ -41,7 +42,9 @@ data class VehicleLog(
     val kmReading: Int = 0,
     val nextServiceKm: Int? = null,
     val nextServiceDate: String? = null,
-    val fuelLiters: Double? = null // NEW: Tracks liters filled during refueling
+    val fuelLiters: Double? = null, // Tracks liters filled during refueling
+    val insuranceType: String? = null, // "1st Party" or "3rd Party" (Insurance logs only)
+    val expiryDate: String? = null // Expiry date for Insurance/Pollution logs
 )
 
 @Entity(tableName = "trip_logs")

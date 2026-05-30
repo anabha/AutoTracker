@@ -3,6 +3,7 @@ package com.tyson.autotracker.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -128,9 +129,17 @@ fun AddLogScreen(
             if (it % 1 == 0.0) it.toInt().toString() else it.toString()
         } ?: "")
     }
-    var kmReading by remember(existingLog) {
+    // Fetch current vehicle to pre-fill odometer
+    val vehicles by viewModel.allVehicles.collectAsState()
+    val currentVehicle = remember(vehicleId, vehicles) { vehicles.find { it.id == vehicleId } }
+
+    var kmReading by remember(existingLog, currentVehicle) {
         mutableStateOf(
-            existingLog?.kmReading?.toString() ?: ""
+            existingLog?.kmReading?.toString()
+                ?: currentVehicle?.currentKm?.let {
+                    if (it % 1 == 0.0) it.toInt().toString() else "%.1f".format(it)
+                }
+                ?: ""
         )
     }
     var description by remember(existingLog) { mutableStateOf(existingLog?.description ?: "") }
@@ -152,6 +161,14 @@ fun AddLogScreen(
         mutableStateOf(
             existingLog?.fuelLiters?.toString() ?: ""
         )
+    }
+
+    // NEW: Insurance/Pollution fields
+    var insuranceType by remember(existingLog) {
+        mutableStateOf(existingLog?.insuranceType ?: "3rd Party")
+    }
+    var expiryDate by remember(existingLog) {
+        mutableStateOf(existingLog?.expiryDate ?: "")
     }
 
     val scrollState = rememberScrollState()
@@ -197,48 +214,76 @@ fun AddLogScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // --- 4-BUTTON TYPE SELECTOR ---
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    LogTypeButton(
-                        text = "Service",
-                        icon = Icons.Default.Build,
-                        isSelected = type == LogType.SERVICE,
-                        activeColor = MaterialTheme.colorScheme.primary,
-                        onClick = { type = LogType.SERVICE },
-                        modifier = Modifier.weight(1f)
-                    )
-                    LogTypeButton(
-                        text = "Oil",
-                        icon = Icons.Default.InvertColors,
-                        isSelected = type == LogType.OIL_CHANGE,
-                        activeColor = Amber400,
-                        onClick = { type = LogType.OIL_CHANGE },
-                        modifier = Modifier.weight(1f)
-                    )
-                    LogTypeButton(
-                        text = "Fuel",
-                        icon = Icons.Default.LocalGasStation,
-                        isSelected = type == LogType.REFUELING,
-                        activeColor = MaterialTheme.colorScheme.secondary,
-                        onClick = { type = LogType.REFUELING },
-                        modifier = Modifier.weight(1f)
-                    )
-                    LogTypeButton(
-                        text = "Mod",
-                        icon = Icons.Default.Settings,
-                        isSelected = type == LogType.MODIFICATION,
-                        activeColor = MaterialTheme.colorScheme.tertiary,
-                        onClick = { type = LogType.MODIFICATION },
-                        modifier = Modifier.weight(1f)
-                    )
+                // --- 6-BUTTON TYPE SELECTOR (2 rows of 3) ---
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        LogTypeButton(
+                            text = "Service",
+                            icon = Icons.Default.Build,
+                            isSelected = type == LogType.SERVICE,
+                            activeColor = MaterialTheme.colorScheme.primary,
+                            onClick = { type = LogType.SERVICE },
+                            modifier = Modifier.weight(1f)
+                        )
+                        LogTypeButton(
+                            text = "Oil",
+                            icon = Icons.Default.InvertColors,
+                            isSelected = type == LogType.OIL_CHANGE,
+                            activeColor = Amber400,
+                            onClick = { type = LogType.OIL_CHANGE },
+                            modifier = Modifier.weight(1f)
+                        )
+                        LogTypeButton(
+                            text = "Fuel",
+                            icon = Icons.Default.LocalGasStation,
+                            isSelected = type == LogType.REFUELING,
+                            activeColor = MaterialTheme.colorScheme.secondary,
+                            onClick = { type = LogType.REFUELING },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        LogTypeButton(
+                            text = "Mod",
+                            icon = Icons.Default.Settings,
+                            isSelected = type == LogType.MODIFICATION,
+                            activeColor = MaterialTheme.colorScheme.tertiary,
+                            onClick = { type = LogType.MODIFICATION },
+                            modifier = Modifier.weight(1f)
+                        )
+                        LogTypeButton(
+                            text = "Insure",
+                            icon = Icons.Default.Security,
+                            isSelected = type == LogType.INSURANCE,
+                            activeColor = MaterialTheme.colorScheme.primary,
+                            onClick = { type = LogType.INSURANCE },
+                            modifier = Modifier.weight(1f)
+                        )
+                        LogTypeButton(
+                            text = "PUCC",
+                            icon = Icons.Default.Eco,
+                            isSelected = type == LogType.POLLUTION,
+                            activeColor = MaterialTheme.colorScheme.secondary,
+                            onClick = { type = LogType.POLLUTION },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
                 // --- FORM FIELDS ---
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Box(Modifier.weight(1f)) { GlassDatePickerField("Date", date) { date = it } }
+                    Box(Modifier.weight(1f)) {
+                        GlassDatePickerField(
+                            if (type == LogType.INSURANCE || type == LogType.POLLUTION) "Purchase Date" else "Date",
+                            date
+                        ) { date = it }
+                    }
                     Box(Modifier.weight(1f)) {
                         GlassInputField(
                             "Cost (₹)",
@@ -250,27 +295,86 @@ fun AddLogScreen(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Box(Modifier.weight(1f)) {
-                        GlassInputField(
-                            "Odometer (KM)",
-                            kmReading,
-                            { kmReading = it },
-                            "Current KM",
-                            KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
+                // --- INSURANCE/POLLUTION SPECIFIC FIELDS ---
+                if (type == LogType.INSURANCE || type == LogType.POLLUTION) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Box(Modifier.weight(1f)) {
+                            GlassDatePickerField("Expiry Date", expiryDate) { expiryDate = it }
+                        }
+                        if (type == LogType.INSURANCE) {
+                            Box(Modifier.weight(1f)) {
+                                // Insurance Type Toggle
+                                Column {
+                                    Text(
+                                        "Insurance Type",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val options = listOf("3rd Party", "1st Party")
+                                        options.forEach { option ->
+                                            val isSelected = insuranceType == option
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .background(
+                                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                                    )
+                                                    .border(
+                                                        2.dp,
+                                                        if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                        RoundedCornerShape(12.dp)
+                                                    )
+                                                    .clickable { insuranceType = option }
+                                                    .padding(vertical = 12.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    option,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    fontSize = 13.sp,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
+                }
 
-                    // NEW: Show fuel liters field ONLY when Refueling is selected
-                    if (type == LogType.REFUELING) {
+                // --- ODOMETER AND FUEL ---
+                if (type != LogType.INSURANCE && type != LogType.POLLUTION) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Box(Modifier.weight(1f)) {
                             GlassInputField(
-                                "Fuel Filled (Liters)",
-                                fuelLiters,
-                                { fuelLiters = it },
-                                "e.g. 10.5",
+                                "Odometer (KM)",
+                                kmReading,
+                                { kmReading = it },
+                                "Current KM",
                                 KeyboardOptions(keyboardType = KeyboardType.Number)
                             )
+                        }
+
+                        if (type == LogType.REFUELING) {
+                            Box(Modifier.weight(1f)) {
+                                GlassInputField(
+                                    "Fuel Filled (Liters)",
+                                    fuelLiters,
+                                    { fuelLiters = it },
+                                    "e.g. 10.5",
+                                    KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                            }
                         }
                     }
                 }
@@ -279,7 +383,12 @@ fun AddLogScreen(
                     label = "Description",
                     value = description,
                     onValueChange = { description = it },
-                    placeholder = if (type == LogType.REFUELING) "Petrol/Diesel amount..." else "What was done?"
+                    placeholder = when (type) {
+                        LogType.REFUELING -> "Petrol/Diesel amount..."
+                        LogType.INSURANCE -> "Policy number, provider..."
+                        LogType.POLLUTION -> "PUCC certificate details..."
+                        else -> "What was done?"
+                    }
                 )
 
                 // --- CONDITIONAL NEXT SERVICE SECTION ---
@@ -334,7 +443,9 @@ fun AddLogScreen(
                             kmReading = kmReading.toIntOrNull() ?: 0,
                             nextServiceKm = nextServiceKm.toIntOrNull(),
                             nextServiceDate = nextServiceDate.ifBlank { null },
-                            fuelLiters = if (type == LogType.REFUELING) fuelLiters.toDoubleOrNull() else null
+                            fuelLiters = if (type == LogType.REFUELING) fuelLiters.toDoubleOrNull() else null,
+                            insuranceType = if (type == LogType.INSURANCE) insuranceType else null,
+                            expiryDate = if (type == LogType.INSURANCE || type == LogType.POLLUTION) expiryDate.ifBlank { null } else null
                         )
 
                         if (existingLog != null) {
@@ -347,7 +458,10 @@ fun AddLogScreen(
                     modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 16.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    enabled = kmReading.isNotBlank() && cost.isNotBlank()
+                    enabled = cost.isNotBlank() && (
+                        (type == LogType.INSURANCE || type == LogType.POLLUTION) ||
+                        kmReading.isNotBlank()
+                    )
                 ) {
                     Text(
                         text = if (existingLog != null) "Update Log" else "Save Log",

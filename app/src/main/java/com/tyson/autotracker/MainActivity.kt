@@ -262,6 +262,7 @@ class MainActivity : ComponentActivity() {
                             onNavigateToAddVehicle = { navController.navigate("add_vehicle") },
                             onNavigateToInsights = { navController.navigate("insights") },
                             onNavigateToSettings = { navController.navigate("settings") },
+                            onNavigateToVisitedPlaces = { navController.navigate("visited_places") },
                             onStartTrip = {
                                 val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                                 if (hasPermission) {
@@ -372,6 +373,13 @@ class MainActivity : ComponentActivity() {
 
                     composable("insights") {
                         InsightsScreen(
+                            viewModel = vehicleViewModel,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("visited_places") {
+                        VisitedPlacesScreen(
                             viewModel = vehicleViewModel,
                             onNavigateBack = { navController.popBackStack() }
                         )

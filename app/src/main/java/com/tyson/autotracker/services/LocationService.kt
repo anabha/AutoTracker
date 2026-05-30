@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
 import com.tyson.autotracker.MainActivity
 import com.tyson.autotracker.data.AutotrackerDatabase
+import com.tyson.autotracker.data.repository.VisitedPlaceRepository
 import com.tyson.autotracker.models.TripLog
 import com.tyson.autotracker.utils.ParkingLocationStore
 import com.tyson.autotracker.utils.ParkingLocationUtils
@@ -135,13 +136,18 @@ class LocationService : Service() {
     }
 
     private fun startLocationUpdates() {
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
-            .setMinUpdateIntervalMillis(2000)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
+            .setMinUpdateIntervalMillis(1000)
+            .setMinUpdateDistanceMeters(1f)
             .build()
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 for (location in locationResult.locations) {
+                    // Skip inaccurate GPS fixes (threshold 20m keeps valid
+                    // curve/turn data while filtering out wild jumps).
+                    if (location.hasAccuracy() && location.accuracy > 20f) continue
+
                     val now = System.currentTimeMillis()
                     if (firstFixWallTime == 0L) firstFixWallTime = now
                     lastFixWallTime = now
@@ -194,8 +200,9 @@ class LocationService : Service() {
 
     private fun saveTripToDatabase(onComplete: (() -> Unit)? = null) {
         // Apply GPS calibration multiplier to compensate for the "corner-cutting" effect
-        // of point-to-point distance calculation between sparse GPS samples.
-        val gpsCalibrationFactor = 1.015f
+        // of point-to-point distance calculation between GPS samples.
+        // 1.032 = measured 3.2% discrepancy (dashboard 7.9 km vs app 7.65 km).
+        val gpsCalibrationFactor = 1.032f
         val distance = tripDistance.value * gpsCalibrationFactor
         val endTime = System.currentTimeMillis()
 
@@ -275,6 +282,18 @@ class LocationService : Service() {
                                 lastParkedAt = endTime
                             )
                         }
+                        
+                        // Record visited place (100m radius dedup)
+                        val visitLat = currentParkingLocation.latitude
+                        val visitLng = currentParkingLocation.longitude
+                        val visitRepo = VisitedPlaceRepository(db.visitedPlaceDao())
+                        visitRepo.recordVisit(visitLat, visitLng, this@LocationService)
+                    } else if (currentLocation.value != null) {
+                        // Fallback if currentParkingLocation is null but we have a live location
+                        val visitLat = currentLocation.value!!.latitude
+                        val visitLng = currentLocation.value!!.longitude
+                        val visitRepo = VisitedPlaceRepository(db.visitedPlaceDao())
+                        visitRepo.recordVisit(visitLat, visitLng, this@LocationService)
                     }
 
                     if (updatedVehicle != vehicle) {

@@ -61,6 +61,7 @@ fun AddVehicleScreen(
     var model by remember { mutableStateOf(existingVehicle?.model ?: "") }
     var year by remember { mutableStateOf(existingVehicle?.year?.toString() ?: Calendar.getInstance().get(Calendar.YEAR).toString()) }
     var currentKm by remember { mutableStateOf(existingVehicle?.currentKm?.let { "%.1f".format(it) } ?: "0") }
+    var fuelCapacity by remember { mutableStateOf(existingVehicle?.fuelCapacityLiters?.let { if (it % 1 == 0.0) it.toInt().toString() else it.toString() } ?: "") }
     var registrationNo by remember { mutableStateOf(existingVehicle?.registrationNo ?: "") }
     var engineNo by remember { mutableStateOf(existingVehicle?.engineNo ?: "") }
     var puccDate by remember { mutableStateOf(existingVehicle?.puccDate ?: "") }
@@ -223,7 +224,10 @@ fun AddVehicleScreen(
                         Box(Modifier.weight(1f)) { GlassInputField("Current KM", currentKm, { currentKm = it }, "0", KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
                     }
 
-                    GlassInputField("Engine No.", engineNo, { engineNo = it }, "ENG123456789")
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Box(Modifier.weight(1f)) { GlassInputField("Engine No.", engineNo, { engineNo = it }, "ENG123456789") }
+                        Box(Modifier.weight(1f)) { GlassInputField("Fuel Capacity (L)", fuelCapacity, { fuelCapacity = it }, "40", KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
+                    }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Box(Modifier.weight(1f)) { GlassDatePickerField("PUCC Expiry", puccDate, { puccDate = it }) }
@@ -324,7 +328,8 @@ fun AddVehicleScreen(
                                 insuranceDate = insuranceDate.ifBlank { null },
                                 bluetoothMacAddress = selectedMacAddress.ifBlank { null },
                                 wifiSsid = selectedWifiSsid.ifBlank { null },
-                                imageUri = imageUri.ifBlank { null }
+                                imageUri = imageUri.ifBlank { null },
+                                fuelCapacityLiters = fuelCapacity.toDoubleOrNull()
                             )
 
                             if (existingVehicle != null) {

@@ -21,6 +21,8 @@ import com.tyson.autotracker.data.AutotrackerDatabase
 import com.tyson.autotracker.models.TripLog
 import com.tyson.autotracker.models.Vehicle
 import com.tyson.autotracker.models.VehicleLog
+import com.tyson.autotracker.models.VisitedPlace
+import com.tyson.autotracker.models.PlaceVisitHistory
 import com.tyson.autotracker.services.LocationService
 import com.tyson.autotracker.utils.ParkingLocationStore
 import com.tyson.autotracker.utils.ParkingLocationUtils
@@ -45,7 +47,9 @@ enum class ThemeMode { LIGHT, DARK, SYSTEM }
 sealed class NavigationEvent { object StartDriving : NavigationEvent() }
 
 class VehicleViewModel(application: Application) : AndroidViewModel(application) {
-    private val dao = AutotrackerDatabase.getDatabase(application).vehicleDao()
+    private val db = AutotrackerDatabase.getDatabase(application)
+    private val dao = db.vehicleDao()
+    private val visitedPlaceDao = db.visitedPlaceDao()
     private val repository = VehicleRepository(dao)
     private val themePrefs = application.getSharedPreferences("theme_prefs", Context.MODE_PRIVATE)
     private val disclosurePrefs = application.getSharedPreferences("location_prefs", Context.MODE_PRIVATE)
@@ -160,6 +164,7 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
 
                 // 2. Wipe Local Room DB
                 dao.clearAllData()
+                visitedPlaceDao.deleteAllVisitedPlaces()
 
                 // 3. Delete Auth User
                 user.delete().await()
@@ -188,6 +193,16 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
     val categoryBreakdown: StateFlow<Map<com.tyson.autotracker.models.LogType, Double>> = dao.getAllLogs().map { logs ->
         logs.groupBy { it.type }.mapValues { (_, typeLogs) -> typeLogs.sumOf { it.cost } }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val allVisitedPlaces: StateFlow<List<VisitedPlace>> = visitedPlaceDao.getAllVisitedPlaces()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun getVisitHistory(placeId: String): Flow<List<PlaceVisitHistory>> =
+        visitedPlaceDao.getHistoryForPlace(placeId)
+
+    fun deleteVisitedPlace(placeId: String) = viewModelScope.launch {
+        visitedPlaceDao.deletePlace(placeId)
+    }
 
     // --- CONNECTION STATES ---
     private val _isBtConnected = MutableStateFlow(false)
@@ -640,6 +655,9 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
+        // Sync expiry date to vehicle for Insurance/Pollution logs
+        syncExpiryDateToVehicle(log)
+
         scheduleReminders(log)
     }
 
@@ -663,21 +681,31 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun scheduleReminders(log: VehicleLog) {
-        if (log.nextServiceDate == null || log.nextServiceDate!!.isBlank()) return
+        // Support reminders for service/oil nextServiceDate AND insurance/pollution expiryDate
+        val dateToSchedule = when (log.type) {
+            com.tyson.autotracker.models.LogType.INSURANCE, com.tyson.autotracker.models.LogType.POLLUTION -> log.expiryDate
+            else -> log.nextServiceDate
+        }
+        if (dateToSchedule == null || dateToSchedule.isBlank()) return
 
         val context = getApplication<Application>()
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
         try {
-            val expiry = sdf.parse(log.nextServiceDate!!) ?: return
+            val expiry = sdf.parse(dateToSchedule) ?: return
             val calendar = Calendar.getInstance()
             calendar.time = expiry
             calendar.set(Calendar.HOUR_OF_DAY, 9)
             calendar.set(Calendar.MINUTE, 0)
 
             val vehicleName = allVehicles.value.find { it.id == log.vehicleId }?.name ?: "Vehicle"
-            val typeStr = if (log.type == com.tyson.autotracker.models.LogType.OIL_CHANGE) "Oil Change" else "Service"
+            val typeStr = when (log.type) {
+                com.tyson.autotracker.models.LogType.OIL_CHANGE -> "Oil Change"
+                com.tyson.autotracker.models.LogType.INSURANCE -> "Insurance"
+                com.tyson.autotracker.models.LogType.POLLUTION -> "Pollution"
+                else -> "Service"
+            }
 
             val offsets = listOf(0, -1, -2)
             offsets.forEach { offset ->
@@ -739,10 +767,62 @@ class VehicleViewModel(application: Application) : AndroidViewModel(application)
         }
         cancelReminders(log)
         scheduleReminders(log)
+
+        // Sync expiry date to vehicle for Insurance/Pollution logs
+        syncExpiryDateToVehicle(log)
+    }
+
+    private suspend fun syncExpiryDateToVehicle(log: VehicleLog) {
+        if (log.expiryDate.isNullOrBlank()) return
+        val vehicle = dao.getVehicleByIdSync(log.vehicleId) ?: return
+
+        val updatedVehicle = when (log.type) {
+            com.tyson.autotracker.models.LogType.INSURANCE -> vehicle.copy(insuranceDate = log.expiryDate)
+            com.tyson.autotracker.models.LogType.POLLUTION -> vehicle.copy(puccDate = log.expiryDate)
+            else -> return
+        }
+
+        dao.updateVehicle(updatedVehicle)
+        syncToFirebase("syncExpiry:updateVehicle ${updatedVehicle.id}") { userDoc ->
+            userDoc.collection("vehicles").document(updatedVehicle.id).set(updatedVehicle)
+        }
     }
 
     fun getLogsForVehicle(vehicleId: String) = dao.getLogsForVehicle(vehicleId)
     fun getTripsForVehicle(vehicleId: String) = dao.getTripsForVehicle(vehicleId)
+
+    /**
+     * Cumulative mileage: (lastKm - firstKm) / totalLiters (excluding last fill-up).
+     * Accuracy improves with every additional refueling log.
+     */
+    fun getAverageMileage(vehicleId: String): Flow<Float> =
+        dao.getLogsForVehicle(vehicleId).map { logs ->
+            val fuelLogs = logs
+                .filter { it.type == com.tyson.autotracker.models.LogType.REFUELING && it.fuelLiters != null && it.fuelLiters > 0 }
+                .sortedBy { it.kmReading }
+
+            if (fuelLogs.size < 2) return@map 0f
+
+            val totalDistance = fuelLogs.last().kmReading - fuelLogs.first().kmReading
+            // Exclude the last fill-up — that fuel hasn't been driven on yet
+            val totalLiters = fuelLogs.dropLast(1).sumOf { it.fuelLiters ?: 0.0 }
+
+            if (totalLiters <= 0 || totalDistance <= 0) 0f
+            else (totalDistance / totalLiters).toFloat()
+        }
+
+    /**
+     * Estimated full-tank range = averageMileage × fuelCapacityLiters
+     */
+    fun getEstimatedRange(vehicleId: String): Flow<Float> =
+        combine(
+            getAverageMileage(vehicleId),
+            allVehicles.map { list -> list.find { it.id == vehicleId } }
+        ) { mileage, vehicle ->
+            val capacity = vehicle?.fuelCapacityLiters ?: 0.0
+            if (mileage <= 0f || capacity <= 0.0) 0f
+            else mileage * capacity.toFloat()
+        }
 
     fun deleteTrip(trip: TripLog) = viewModelScope.launch {
         val vehicle = dao.getVehicleByIdSync(trip.vehicleId)

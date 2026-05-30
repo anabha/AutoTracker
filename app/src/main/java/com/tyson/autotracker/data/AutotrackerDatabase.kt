@@ -9,11 +9,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.tyson.autotracker.models.TripLog
 import com.tyson.autotracker.models.Vehicle
 import com.tyson.autotracker.models.VehicleLog
+import com.tyson.autotracker.models.VisitedPlace
+import com.tyson.autotracker.models.PlaceVisitHistory
 
-// Updated Version to 12 due to changing currentKm column type from INTEGER to REAL for decimal odometer accuracy.
-@Database(entities = [Vehicle::class, VehicleLog::class, TripLog::class], version = 12, exportSchema = false)
+// Updated Version to 15 to add fuelCapacityLiters column to vehicles table.
+@Database(entities = [Vehicle::class, VehicleLog::class, TripLog::class, VisitedPlace::class, PlaceVisitHistory::class], version = 15, exportSchema = false)
 abstract class AutotrackerDatabase : RoomDatabase() {
     abstract fun vehicleDao(): VehicleDao
+    abstract fun visitedPlaceDao(): VisitedPlaceDao
 
     companion object {
         @Volatile
@@ -26,7 +29,7 @@ abstract class AutotrackerDatabase : RoomDatabase() {
                     AutotrackerDatabase::class.java,
                     "autotracker_db"
                 )
-                    .addMigrations(MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
@@ -91,6 +94,48 @@ abstract class AutotrackerDatabase : RoomDatabase() {
 
                 db.execSQL("DROP TABLE vehicles")
                 db.execSQL("ALTER TABLE vehicles_new RENAME TO vehicles")
+            }
+        }
+
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `visited_places` (
+                        `placeId` TEXT NOT NULL, 
+                        `latitude` REAL NOT NULL, 
+                        `longitude` REAL NOT NULL, 
+                        `placeName` TEXT NOT NULL, 
+                        `visitCount` INTEGER NOT NULL, 
+                        `lastVisitDate` INTEGER NOT NULL, 
+                        PRIMARY KEY(`placeId`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `place_visit_history` (
+                        `historyId` TEXT NOT NULL, 
+                        `placeId` TEXT NOT NULL, 
+                        `visitTimestamp` INTEGER NOT NULL, 
+                        PRIMARY KEY(`historyId`), 
+                        FOREIGN KEY(`placeId`) REFERENCES `visited_places`(`placeId`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE logs ADD COLUMN insuranceType TEXT")
+                db.execSQL("ALTER TABLE logs ADD COLUMN expiryDate TEXT")
+            }
+        }
+
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE vehicles ADD COLUMN fuelCapacityLiters REAL")
             }
         }
     }
